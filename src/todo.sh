@@ -1,105 +1,157 @@
 #!/bin/bash
 
-DATA_DIR="data"
-TASK_FILE="data/tasks.csv"
-TASK_BACKUP_FILE="data/tasks.gz"
-LOG_FILE="data/task_manager.log"
+# configuration
+readonly DATA_DIR="./data"
+readonly TASK_FILE="./data/tasks.csv"
+readonly TASK_BACKUP_FILE="./data/tasks.gz"
+readonly LOG_FILE="./data/task_manager.log"
 
-# validate if a file or directory exist
-function validate_path(){
-    if [[ -e "$1"  ]]; then
-        return 0 # path exists
-    else
-        return 1 # path does not exists
-    fi
-}
+# Color codes for better UI
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly BLUE='\033[0;34m'
+readonly NC='\033[0m' # No Color
 
-# validate piority input
-function validate_priority(){
-    [[ "$1" =~ ^(HIGH|MEDIUM|LOW)$  ]]
-}
-
-# log funtion for INFO, ERROR, SUCCESS
-function logger(){
-    # [2024-01-15 14:31:10] ERROR: Invalid date format provided
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1 $2." >> $LOG_FILE
-}
-
-# log funtion for tasks actions: CREATE, RETRIEVE, UPDATE, DELETE
-function task_logger(){
-    # [2024-01-10 09:05:22] ACTION: Task added - ID:002, Desc: Buy groceries
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ACTION: Task $1 - Desc: $2" >> $LOG_FILE
-}
-
-# validate due_date input: YYYY-MMM-DD
-function validate_date(){
-    [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$  && $(date -d "$1") ]]
-}
-
+# ==================== UTILITY FUNCTIONS ====================
 
 # Ensure that the directory and files exist
 function intialize_task_file(){
     if ! validate_path "$TASK_FILE"; then
-        # Ensure the 'data' directory exists
+
+        # Create data directory if it doesn't exist
         if [[ ! -d $DATA_DIR ]]; then
-            logger "INFO:" "Initializing Data Directory"
             mkdir -p $DATA_DIR
+            log_info "Created data directory"
         fi
 
-        # Ensure the task file exists in the 'data' folder
+        # Create tasks file if it doesn't exist
         if [[ ! -f "$TASK_FILE" ]]; then
-            logger "INFO:" "Creating task file.."
-            touch "$TASK_FILE"  # Create tasks.csv inside the 'data' folder
-
-            echo "Description,Category,Priority,DueDate,Status" >> "$TASK_FILE"
+            echo "ID,Description,Category,Priority,DueDate,Status,CreatedAt,UpdatedAt,CompletedAt" > "$TASK_FILE"
+            log_info "Created tasks file with headers"
         fi
 
-        # Ensure the log file exists in the 'data' folder
+        # Create log file if it doesn't exist
         if [[ ! -f "$LOG_FILE" ]]; then
-            logger "INFO:" "Creating log file.."
-            touch "$LOG_FILE"  # Create task_manager.log inside the 'data' folder
+            touch "$LOG_FILE"
+            log_info "Created log file"
         fi
     else
-        logger "INFO:" "Path already exist"
+        log_info "Path already exist"
     fi
 }
 
+# TODO: generate id
+
+
+# Logging funtion for INFO, ERROR, SUCCESS
+function log_message(){
+    local level="$1"
+    local message="$2"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${level}: ${message}" >> "$LOG_FILE"
+}
+
+function log_task_action(){
+    local action="$1"
+    local description="$2"
+    log_message "ACTION:" "Task ${action} - Desc: ${description}"
+}
+
+log_error() {
+    log_message "ERROR" "$1"
+    echo -e "${RED}Error: $1${NC}" >&2
+}
+
+log_success() {
+    echo -e "${GREEN}$1${NC}"
+    log_message "SUCCESS" "$1"
+}
+
+log_info() {
+    echo -e "${BLUE}$1${NC}"
+    log_message "INFO" "$1"
+}
+
+# ==================== END OF UTILITY FUNCTIONS ====================
+
+# ==================== VALIDATE FUNCTIONS ====================
+
+function validate_path(){
+    [[ -e "$1"  ]]
+}
+
+function validate_priority(){
+    [[ "$1" =~ ^(HIGH|MEDIUM|LOW)$  ]]
+}
+
+function validate_date(){
+    [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$  && $(date -d "$1") ]]
+}
+
+function validate_status(){
+    [[ "$1" =~ ^(PENDING|COMPLETED)$  ]]
+}
+
+function is_input_empty(){
+    [[ -z "$1" ]]
+}
+
+# ==================== END OF VALIDATE FUNCTIONS ====================
+
+# ==================== TASK OPERATIONS ====================
 
 # Add new tasks
 function add_new_task(){
+    echo -e "\n${BLUE}--- Add New Task ---${NC}"
+
+    # Get and validate description
     read -p "Enter task description: " description
-    read -p "Enter task category (e.g Work, Event): " category
-
-    read -p "Enter task priority (Low, Medium, High): " priority
-    priority=$(echo "$priority" | tr '[:lower:]' '[:upper:]') # translate user input to capital letter
-
-    read -p "Enter task due date (YYYY-MM-DD): " due_date
-
-    # piority validation
-    validate_priority "$priority"
-
-    if ! [[ $? == 0 ]]; then
-        logger "ERROR:" "Invalid priority format. Please use Low or Medium or High."
-        return
+    if is_input_empty "$description"; then
+        log_error "Description cannot be empty"
+        return 1
     fi
 
-    # date validation
-    validate_date $due_date
-
-    if ! [[ $? == 0 ]]; then
-        logger "ERROR:" "Invalid date format entered. Please use a format YYYY-MM-DD."
-        return
+    # Get category
+    read -p "Enter task category (e.g., Work, Personal, Event): " category
+    if is_input_empty "$category"; then
+        category="General"
+        log_info "Category set to default: General"
     fi
 
-    # append new task to a file: ID,,,,,,CreatedAt,UpdatedAt,CompletedAt
-    echo "$description,$category,$priority,$due_date,Pending" >> "$TASK_FILE"
+    # Get and validate priority
+    while true; do
+        read -p "Enter task priority (Low, Medium, High): " priority
+        priority=$(echo "$priority" | tr '[:lower:]' '[:upper:]')
+        if validate_priority "$priority"; then
+            break
+        else
+            echo -e "${YELLOW}Invalid priority. Please use Low, Medium, or High.${NC}"
+        fi
+    done
 
-    # log a message
-    task_logger "CREATE" "$description"
+    # Get and validate due date
+    while true; do
+        read -p "Enter task due date (YYYY-MM-DD): " due_date
+        if validate_date "$due_date"; then
+            break
+        else
+            echo -e "${YELLOW}Invalid date format. Please use YYYY-MM-DD.${NC}"
+        fi
+    done
 
-    # confirmation
-    echo "Task added successfully!"
+    # TODO: Generate task ID and timestamps
+    
+    local status="PENDING"
+
+    # Append task to file
+    echo "${description},${category},${priority},${due_date},${status},${current_date},${current_date}," >> "$TASK_FILE"
+
+    # Log and confirm
+    log_task_action "CREATED" "$description"
+    log_success "Task #${task_id} added successfully!"
 }
+
+# ==================== END OF TASK OPERATIONS ====================
 
 
 # Main Menu and User Interaction
@@ -108,39 +160,45 @@ function display_main_menu(){
     echo ""
     echo "Welcome to using Todo List Manager App"
 
-    echo "╔════════════════════════════════════════╗"
-    echo "║           TO-DO TASK MANAGER           ║"
-    echo "╠════════════════════════════════════════╣"
-    echo "║ 1. Add New Task                        ║"
-    echo "║ 2. Mark Task as Complete               ║"
-    echo "║ 3. Delete Task                         ║"
-    echo "║ 4. Filter Tasks                        ║"
-    echo "║    ├─ By Category                      ║"
-    echo "║    ├─ By Priority                      ║"
-    echo "║    └─ By Status                        ║"
-    echo "║ 5. Sort Tasks                          ║"
-    echo "║    ├─ By Due Date                      ║"
-    echo "║    └─ By Priority                      ║"
-    echo "║ 6. List All Tasks                      ║"
-    echo "║ 7. Search Tasks                        ║"
-    echo "║ 8. Statistics & Reports                ║"
-    echo "║ 9. Export Tasks                        ║"
-    echo "║ 0. Exit                                ║"
-    echo "╚════════════════════════════════════════╝"
+    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║           TO-DO TASK MANAGER           ║${NC}"
+    echo -e "${BLUE}╠════════════════════════════════════════╣${NC}"
+    echo -e "${BLUE}║ 1. Add New Task                        ${BLUE}║${NC}"
+    echo -e "${BLUE}║ 2. Mark Task as Complete               ${BLUE}║${NC}"
+    echo -e "${BLUE}║ 3. Delete Task                         ${BLUE}║${NC}"
+    echo -e "${BLUE}║ 4. Filter Tasks                        ${BLUE}║${NC}"
+    echo -e "${BLUE}║    ├─ By Category                      ${BLUE}║${NC}"
+    echo -e "${BLUE}║    ├─ By Priority                      ${BLUE}║${NC}"
+    echo -e "${BLUE}║    └─ By Status                        ${BLUE}║${NC}"
+    echo -e "${BLUE}║ 5. Sort Tasks                          ${BLUE}║${NC}"
+    echo -e "${BLUE}║    ├─ By Due Date                      ${BLUE}║${NC}"
+    echo -e "${BLUE}║    └─ By Priority                      ${BLUE}║${NC}"
+    echo -e "${BLUE}║ 6. List All Tasks                      ${BLUE}║${NC}"
+    echo -e "${BLUE}║ 7. Search Tasks                        ${BLUE}║${NC}"
+    echo -e "${BLUE}║ 8. Statistics & Reports                ${BLUE}║${NC}"
+    echo -e "${BLUE}║ 9. Export Tasks                        ${BLUE}║${NC}"
+    echo -e "${BLUE}║ 0. Exit                                ${BLUE}║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
 
     read -p "Please choose an option (0-9): " choice
 
     case "$choice" in
-    1) add_new_task ;;
-    2) echo "Mark Task as Complete" ;;
-    3) echo "Delete Task" ;;
-    4) echo "Filter Tasks" ;;
-    5) echo "Sort Tasks" ;;
-    6) echo "List All Tasks" ;;
-    7) echo "Search Tasks" ;;
-    8) echo "Statistics & Reports" ;;
-    9) echo "Export Tasks" ;;
-    0) exit ;;
+        1) add_new_task ;;
+        2) mark_task_complete ;;
+        3) delete_task ;;
+        4) filter_tasks ;;
+        5) sort_tasks ;;
+        6) list_all_tasks ;;
+        7) search_tasks ;;
+        8) show_statistics ;;
+        9) export_tasks ;;
+        0) 
+            log_info "Goodbye!"
+            exit 0
+            ;;
+        *)
+            log_error "Invalid option. Please choose 0-7."
+            ;;
     esac
 }
 
@@ -151,10 +209,13 @@ function main(){
     # initialize files and directory
     intialize_task_file     
 
-    # display menu
-    display_main_menu
+    
+    # Main loop
+    while true; do
+        display_main_menu
+    done
 
 }
 
-# run script
+# Run main function
 main
