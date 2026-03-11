@@ -27,7 +27,7 @@ function intialize_task_file(){
 
         # Create tasks file if it doesn't exist
         if [[ ! -f "$TASK_FILE" ]]; then
-            echo "ID,Description,Category,Priority,DueDate,Status,CreatedAt,UpdatedAt,CompletedAt" > "$TASK_FILE"
+            echo "ID,Name,Description,Category,Priority,DueDate,Status,CreatedAt,UpdatedAt,CompletedAt" > "$TASK_FILE"
             log_info "Created tasks file with headers"
         fi
 
@@ -41,7 +41,14 @@ function intialize_task_file(){
     fi
 }
 
-# TODO: generate id
+# generate id
+function get_next_id(){
+    if [[ -f "$TASK_FILE" ]] && [[ $(wc -l < "$TASK_FILE") -ge 2 ]]; then
+        tail -n +2 "$TASK_FILE" | cut -d',' -f1 | sort -n | tail -1 | awk '{print $1+1}'
+    else
+        echo "1"
+    fi
+}
 
 
 # Logging funtion for INFO, ERROR, SUCCESS
@@ -104,6 +111,9 @@ function is_input_empty(){
 function add_new_task(){
     echo -e "\n${BLUE}--- Add New Task ---${NC}"
 
+    # Get task name
+    read -p "Enter task name: " name
+
     # Get and validate description
     read -p "Enter task description: " description
     if is_input_empty "$description"; then
@@ -139,16 +149,53 @@ function add_new_task(){
         fi
     done
 
-    # TODO: Generate task ID and timestamps
-    
+    # Generate task ID and timestamps
+    local task_id=$(get_next_id)
+    local current_date=$(date +"%Y-%m-%d %H:%M:%S")
     local status="PENDING"
 
     # Append task to file
-    echo "${description},${category},${priority},${due_date},${status},${current_date},${current_date}," >> "$TASK_FILE"
+    echo "${task_id},${name},${description},${category},${priority},${due_date},${status},${current_date},${current_date}," >> "$TASK_FILE"
 
     # Log and confirm
     log_task_action "CREATED" "$description"
     log_success "Task #${task_id} added successfully!"
+}
+
+# Delete tasks
+function delete_task(){
+    echo -e "\n${BLUE}--- Delete Task ---${NC}"
+
+    read -p "Enter task name to delete: " task_name
+    read -p "Are you sure you want to delete task #${task_name}? (y/N): " confirm
+
+    # if confirm is not y
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        log_info "Deletion Cancelled."
+        return
+    fi
+
+    local found=0
+
+    while IFS=',' read -r line; do
+        if [[ $(echo "$line" | cut -d',' -f2) == "$task_name" ]]; then
+            task_id=$(echo "$line" | cut -d',' -f1)
+            found=1
+            continue
+        fi
+
+        # deletes lines from a CSV file where the Name column equals task name
+        sed -i "/^[^,]*,$task_name,/d" "$TASK_FILE"
+
+    done < "$TASK_FILE"
+
+    if [[ $found -eq 1 ]]; then
+        log_task_action "DELETED" "$task_name"
+        log_success "Task #${task_id} deleted successfully"
+    else
+        log_error "Task #${task_name} not found."
+    fi
+
 }
 
 # ==================== END OF TASK OPERATIONS ====================
